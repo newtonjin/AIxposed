@@ -26,9 +26,9 @@ It's a public URL.
 
 We:
 
-1. dig the open web + archives for `/share/` crumbs  
-2. bounce between domains so rate limits don't catch the L  
-3. poke UUID-shaped holes when the mood is spicy  
+1. dig the open web + archives for `/share/` crumbs
+2. bounce between domains so rate limits don't catch the L
+3. poke UUID-shaped holes when the mood is spicy
 4. dump `title,link` into a CSV like it's 2009 and XMLRPC still mattered
 
 ```
@@ -53,7 +53,7 @@ pip install -r requirements.txt
 ## run it (zero brain cells required)
 
 ```powershell
-# yeet everything. all providers. interleaved. go.
+# yeet everything. all providers. interleaved. go. (no banner, we have taste)
 python -m aixposed
 
 # same energy, more typing
@@ -68,22 +68,27 @@ python -m aixposed discover --providers claude,chatgpt --out shares.csv
 # what plugins even loaded lol
 python -m aixposed plugins
 
-# stare at the N3 Sec logo like it's a personality
+# OPTIONAL drip — banner is OFF by default, you gotta ask for it lol
+python -m aixposed --banner --limit 60 --out test.csv
+
+# or just stare at the logo like it's a personality
 python -m aixposed banner
 ```
 
 ### knobs for the terminally online
 
-| Flag | Default | Vibes |
-|------|---------|-------|
-| `--providers` | `all` | who we haunt |
-| `--sources` | `search,cdx` | where we dig |
-| `--delay` | `0.7` | chill pill for the wire |
-| `--host-gap` | `1.1` | don't spam the same host like a bot (ironic, we know) |
-| `--concurrency` | `6` | parallel chaos, still interleaved |
-| `--no-verify` | off | skip titles, live your truth |
-| `--no-banner` | off | boring mode. the cat judges you. |
-| `--no-rotate-ua` | off | one UA forever. coward. |
+
+| Flag             | Default      | Vibes                                                 |
+| ---------------- | ------------ | ----------------------------------------------------- |
+| `--providers`    | `all`        | who we haunt                                          |
+| `--sources`      | `search,cdx` | where we dig                                          |
+| `--delay`        | `0.7`        | chill pill for the wire                               |
+| `--host-gap`     | `1.1`        | don't spam the same host like a bot (ironic, we know) |
+| `--concurrency`  | `6`          | parallel chaos, still interleaved                     |
+| `--no-verify`    | off          | skip titles, live your truth                          |
+| `--banner`       | off          | N3 Sec ASCII flex. opt-in only. main character mode.  |
+| `--no-rotate-ua` | off          | one UA forever. coward.                               |
+
 
 ---
 
@@ -159,7 +164,7 @@ aixposed/
 
 ---
 
-## disclaimer (the adult part, ugh)
+## disclaimer
 
 Public shares only. Don't be weird. Don't be illegal.  
 If someone pasted their API keys into a "private" share — that was a choice.  
@@ -173,3 +178,4 @@ We're just the cat watching from the windowsill.
      ___|___
     /       \   AIxposed — because "anyone with the link" means anyone.
 ```
+

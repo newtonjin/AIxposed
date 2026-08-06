@@ -34,7 +34,7 @@ class DiscoverConfig:
     brute_pattern: str = "uuid8"
     seed_file: str | None = None
     skip_verify_sources: tuple[str, ...] = ("brute",)
-    show_banner: bool = True
+    show_banner: bool = False
     rotate_ua: bool = True
 
 

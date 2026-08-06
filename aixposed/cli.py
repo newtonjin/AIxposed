@@ -69,7 +69,7 @@ def discover_options(fn: F) -> F:
             "--seed-file", type=click.Path(exists=True, dir_okay=False), default=None
         ),
         click.option("--no-verify", is_flag=True, help="Skip page visits / no real titles"),
-        click.option("--no-banner", is_flag=True, help="Hide N3 Sec ASCII art"),
+        click.option("--banner", is_flag=True, help="Show N3 Sec ASCII art (off by default)"),
         click.option("--no-rotate-ua", is_flag=True, help="Disable User-Agent rotation"),
     ]
     for option in reversed(options):
@@ -89,7 +89,7 @@ def _run_discover(
     brute_pattern: str,
     seed_file: str | None,
     no_verify: bool,
-    no_banner: bool,
+    banner: bool,
     no_rotate_ua: bool,
 ) -> None:
     cfg = DiscoverConfig(
@@ -104,7 +104,7 @@ def _run_discover(
         brute_attempts=brute_attempts,
         brute_pattern=brute_pattern.lower(),
         seed_file=seed_file,
-        show_banner=not no_banner,
+        show_banner=banner,
         rotate_ua=not no_rotate_ua,
     )
     try:
@@ -131,7 +131,7 @@ def main(
     brute_pattern: str,
     seed_file: str | None,
     no_verify: bool,
-    no_banner: bool,
+    banner: bool,
     no_rotate_ua: bool,
 ) -> None:
     """AIxposed — interleaved discovery of public AI chat shares (N3 Sec).
@@ -151,7 +151,7 @@ def main(
             brute_pattern=brute_pattern,
             seed_file=seed_file,
             no_verify=no_verify,
-            no_banner=no_banner,
+            banner=banner,
             no_rotate_ua=no_rotate_ua,
         )
 
@@ -170,7 +170,7 @@ def discover(
     brute_pattern: str,
     seed_file: str | None,
     no_verify: bool,
-    no_banner: bool,
+    banner: bool,
     no_rotate_ua: bool,
 ) -> None:
     """Interleaved discovery across providers/domains + CSV (title, link)."""
@@ -186,7 +186,7 @@ def discover(
         brute_pattern=brute_pattern,
         seed_file=seed_file,
         no_verify=no_verify,
-        no_banner=no_banner,
+        banner=banner,
         no_rotate_ua=no_rotate_ua,
     )
 
@@ -194,7 +194,6 @@ def discover(
 @main.command("plugins")
 def plugins() -> None:
     """List loaded plug-and-play providers and sources."""
-    print_banner(console)
     console.print("[bold]Providers[/bold]  (aixposed/plugins/providers/*.py)")
     for key, p in load_providers().items():
         brute = "uuid8" if p.supports_uuid8_brute else "-"
