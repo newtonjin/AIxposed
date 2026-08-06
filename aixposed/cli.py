@@ -27,7 +27,7 @@ def _split_csv(value: str | None) -> list[str]:
 
 
 def discover_options(fn: F) -> F:
-    """Shared flags for root `aixposed` and `aixposed discover`."""
+    """Shared flags for root `aixposed` and subcommands."""
     options = [
         click.option(
             "--providers",
@@ -46,7 +46,23 @@ def discover_options(fn: F) -> F:
             "--limit",
             default=2000,
             show_default=True,
-            help="Max candidates per source (caps search/cdx/etc).",
+            help="Max unique share links to collect (total, across all sources).",
+        ),
+        click.option(
+            "--query",
+            "-q",
+            default=None,
+            help="Only keep shares whose title/body match (AND tokens). Also biases web dorks.",
+        ),
+        click.option(
+            "--after",
+            default=None,
+            help="Only keep shares with create date on/after YYYY-MM-DD (when known).",
+        ),
+        click.option(
+            "--before",
+            default=None,
+            help="Only keep shares with create date on/before YYYY-MM-DD (when known).",
         ),
         click.option(
             "--delay", default=0.7, show_default=True, help="Base global delay (evasion)"
@@ -58,17 +74,30 @@ def discover_options(fn: F) -> F:
             help="Minimum gap between requests to the same host",
         ),
         click.option("--concurrency", default=6, show_default=True),
-        click.option("--brute-attempts", default=200, show_default=True),
+        click.option("--brute-attempts", default=500, show_default=True),
         click.option(
             "--brute-pattern",
             type=click.Choice(["uuid8", "uuid4"], case_sensitive=False),
             default="uuid8",
             show_default=True,
+            help="uuid8=ChatGPT-shaped; uuid4 used automatically for Claude/etc.",
         ),
         click.option(
-            "--seed-file", type=click.Path(exists=True, dir_okay=False), default=None
+            "--seed-file",
+            type=click.Path(exists=True, dir_okay=False),
+            default=None,
+            help="IDs/URLs to probe (+ nearby UUID neighbors)",
         ),
-        click.option("--no-verify", is_flag=True, help="Skip page visits / no real titles"),
+        click.option(
+            "--no-verify",
+            is_flag=True,
+            help="Skip live checks; write discovered links as unverified",
+        ),
+        click.option(
+            "--live-only",
+            is_flag=True,
+            help="Drop dead/revoked shares from CSV (default keeps them with status=dead)",
+        ),
         click.option("--banner", is_flag=True, help="Show N3 Sec ASCII art (off by default)"),
         click.option("--no-rotate-ua", is_flag=True, help="Disable User-Agent rotation"),
     ]
@@ -82,6 +111,9 @@ def _run_discover(
     sources: str,
     out_path: str,
     limit: int,
+    query: str | None,
+    after: str | None,
+    before: str | None,
     delay: float,
     host_gap: float,
     concurrency: int,
@@ -89,6 +121,7 @@ def _run_discover(
     brute_pattern: str,
     seed_file: str | None,
     no_verify: bool,
+    live_only: bool,
     banner: bool,
     no_rotate_ua: bool,
 ) -> None:
@@ -106,6 +139,10 @@ def _run_discover(
         seed_file=seed_file,
         show_banner=banner,
         rotate_ua=not no_rotate_ua,
+        live_only=live_only,
+        query=query,
+        after=after,
+        before=before,
     )
     try:
         asyncio.run(run_discover(cfg))
@@ -124,6 +161,9 @@ def main(
     sources: str,
     out_path: str,
     limit: int,
+    query: str | None,
+    after: str | None,
+    before: str | None,
     delay: float,
     host_gap: float,
     concurrency: int,
@@ -131,12 +171,16 @@ def main(
     brute_pattern: str,
     seed_file: str | None,
     no_verify: bool,
+    live_only: bool,
     banner: bool,
     no_rotate_ua: bool,
 ) -> None:
     """AIxposed — interleaved discovery of public AI chat shares (N3 Sec).
 
-    Flags work on the root command, e.g. `python -m aixposed --limit 60 --out test.csv`
+    Examples:
+      python -m aixposed --limit 60 --out test.csv
+      python -m aixposed -q "stanford" --providers claude,chatgpt --out hits.csv
+      python -m aixposed search -q "ransomware" --after 2024-01-01
     """
     if ctx.invoked_subcommand is None:
         _run_discover(
@@ -144,6 +188,9 @@ def main(
             sources=sources,
             out_path=out_path,
             limit=limit,
+            query=query,
+            after=after,
+            before=before,
             delay=delay,
             host_gap=host_gap,
             concurrency=concurrency,
@@ -151,6 +198,7 @@ def main(
             brute_pattern=brute_pattern,
             seed_file=seed_file,
             no_verify=no_verify,
+            live_only=live_only,
             banner=banner,
             no_rotate_ua=no_rotate_ua,
         )
@@ -163,6 +211,9 @@ def discover(
     sources: str,
     out_path: str,
     limit: int,
+    query: str | None,
+    after: str | None,
+    before: str | None,
     delay: float,
     host_gap: float,
     concurrency: int,
@@ -170,15 +221,19 @@ def discover(
     brute_pattern: str,
     seed_file: str | None,
     no_verify: bool,
+    live_only: bool,
     banner: bool,
     no_rotate_ua: bool,
 ) -> None:
-    """Interleaved discovery across providers/domains + CSV (title, link)."""
+    """Interleaved discovery across providers/domains + CSV."""
     _run_discover(
         providers=providers,
         sources=sources,
         out_path=out_path,
         limit=limit,
+        query=query,
+        after=after,
+        before=before,
         delay=delay,
         host_gap=host_gap,
         concurrency=concurrency,
@@ -186,6 +241,56 @@ def discover(
         brute_pattern=brute_pattern,
         seed_file=seed_file,
         no_verify=no_verify,
+        live_only=live_only,
+        banner=banner,
+        no_rotate_ua=no_rotate_ua,
+    )
+
+
+@main.command("search")
+@discover_options
+def search_cmd(
+    providers: str,
+    sources: str,
+    out_path: str,
+    limit: int,
+    query: str | None,
+    after: str | None,
+    before: str | None,
+    delay: float,
+    host_gap: float,
+    concurrency: int,
+    brute_attempts: int,
+    brute_pattern: str,
+    seed_file: str | None,
+    no_verify: bool,
+    live_only: bool,
+    banner: bool,
+    no_rotate_ua: bool,
+) -> None:
+    """Topic search: dork the web + filter title/body. Adds brute by default."""
+    if not query and not after and not before:
+        raise click.UsageError("search needs --query/-q and/or --after/--before")
+    # Default sources for search mode if user left the generic default.
+    src = sources
+    if src == "search,cdx":
+        src = "search,cdx,brute"
+    _run_discover(
+        providers=providers,
+        sources=src,
+        out_path=out_path,
+        limit=limit,
+        query=query,
+        after=after,
+        before=before,
+        delay=delay,
+        host_gap=host_gap,
+        concurrency=concurrency,
+        brute_attempts=brute_attempts,
+        brute_pattern=brute_pattern,
+        seed_file=seed_file,
+        no_verify=False,  # must probe content
+        live_only=True if live_only or query else live_only,
         banner=banner,
         no_rotate_ua=no_rotate_ua,
     )
@@ -196,7 +301,7 @@ def plugins() -> None:
     """List loaded plug-and-play providers and sources."""
     console.print("[bold]Providers[/bold]  (aixposed/plugins/providers/*.py)")
     for key, p in load_providers().items():
-        brute = "uuid8" if p.supports_uuid8_brute else "-"
+        brute = "uuid8" if p.supports_uuid8_brute else "uuid4"
         console.print(
             f"  [cyan]{key:10}[/cyan] {p.name:12} {p.url_template}  brute={brute}"
         )

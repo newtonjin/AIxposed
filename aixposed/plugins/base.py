@@ -69,6 +69,9 @@ class DiscoverContext:
     brute_pattern: str = "uuid8"
     seed_file: str | None = None
     concurrency: int = 6
+    query: str | None = None
+    after: str | None = None  # YYYY-MM-DD
+    before: str | None = None  # YYYY-MM-DD
     extras: dict[str, Any] = field(default_factory=dict)
 
 

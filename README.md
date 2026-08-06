@@ -56,38 +56,44 @@ pip install -r requirements.txt
 # yeet everything. all providers. interleaved. go. (no banner, we have taste)
 python -m aixposed
 
-# same energy, more typing
-python -m aixposed discover --providers all --sources search,cdx --out aixposed.csv
+# TOPIC SEARCH — dorks + title/body filter. only matching shares hit the CSV
+python -m aixposed search -q "stanford HCAI" --out hits.csv
+python -m aixposed -q "ransomware" --providers claude,chatgpt --after 2024-06-01
 
-# feel dangerous
-python -m aixposed discover --sources search,cdx,commoncrawl,brute --brute-attempts 500
+# hunt Claude harder (extra dorks) + unindexed brute
+python -m aixposed --providers claude --sources search,cdx,brute --brute-attempts 2000 -q "artifact"
 
-# only the main characters
-python -m aixposed discover --providers claude,chatgpt --out shares.csv
+# neighbor-probe around known IDs (not just whatever Google indexed)
+python -m aixposed --sources brute --seed-file ids.txt --brute-attempts 1000 --providers chatgpt,claude
 
-# what plugins even loaded lol
+# raw archive dump, skip live checks
+python -m aixposed --sources cdx --no-verify --limit 60 --out raw.csv
+
 python -m aixposed plugins
-
-# OPTIONAL drip — banner is OFF by default, you gotta ask for it lol
-python -m aixposed --banner --limit 60 --out test.csv
-
-# or just stare at the logo like it's a personality
-python -m aixposed banner
+python -m aixposed --banner
 ```
 
 ### knobs for the terminally online
 
 
-| Flag             | Default      | Vibes                                                 |
-| ---------------- | ------------ | ----------------------------------------------------- |
-| `--providers`    | `all`        | who we haunt                                          |
-| `--sources`      | `search,cdx` | where we dig                                          |
-| `--delay`        | `0.7`        | chill pill for the wire                               |
-| `--host-gap`     | `1.1`        | don't spam the same host like a bot (ironic, we know) |
-| `--concurrency`  | `6`          | parallel chaos, still interleaved                     |
-| `--no-verify`    | off          | skip titles, live your truth                          |
-| `--banner`       | off          | N3 Sec ASCII flex. opt-in only. main character mode.  |
-| `--no-rotate-ua` | off          | one UA forever. coward.                               |
+| Flag | Default | Vibes |
+|------|---------|-------|
+| `--providers` | `all` | who we haunt |
+| `--sources` | `search,cdx` | where we dig (`brute` = unindexed UUIDs) |
+| `--limit` | `2000` | max unique links total (live-printed) |
+| `-q` / `--query` | off | keep ONLY shares whose title/body match (AND tokens) |
+| `--after` / `--before` | off | date filter `YYYY-MM-DD` (from share metadata when present) |
+| `--brute-attempts` | `500` | how hard we yeet UUIDs into the void |
+| `--seed-file` | off | known IDs/URLs + nearby UUID neighbors |
+| `--no-verify` | off | skip live checks |
+| `--live-only` | off | drop dead/revoked |
+| `--banner` | off | N3 Sec ASCII, opt-in |
+
+> **Claude scarce?** Indexes nuked a lot of `/share` pages. Use `search -q "..."` + `--sources search,cdx,brute` and crank `--brute-attempts`. Brute is the "not indexed" path.
+>
+> **Titles:** Grok `og:title`, ChatGPT `pageTitle` / react-router stream, cleaned of `ChatGPT -` / `| Shared Grok Conversation` junk.
+>
+> CSV columns: `title,link,provider,source,share_id,status,created_at`
 
 
 ---
