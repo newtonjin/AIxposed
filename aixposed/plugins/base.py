@@ -57,6 +57,7 @@ class Candidate:
     link: str
     source: str
     title: str = ""
+    archive_ts: str = ""  # Wayback timestamp when known (from CDX)
 
 
 @dataclass

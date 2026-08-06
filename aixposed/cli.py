@@ -91,7 +91,7 @@ def discover_options(fn: F) -> F:
         click.option(
             "--no-verify",
             is_flag=True,
-            help="Skip live checks; write discovered links as unverified",
+            help="Still fetch titles, but keep dead/revoked rows (don't require live-only)",
         ),
         click.option(
             "--live-only",

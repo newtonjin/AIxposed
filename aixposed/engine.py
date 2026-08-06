@@ -8,15 +8,17 @@ from dataclasses import dataclass, field
 from rich.console import Console
 from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 
+from aixposed.archive import is_weak_title, title_from_wayback
 from aixposed.banner import print_banner
 from aixposed.csv_export import write_csv
 from aixposed.evasion import HostEvasion, host_of, interleave_by_key
-from aixposed.extractors import probe_share
+from aixposed.extractors import matches_query, probe_share
 from aixposed.http_client import make_client
 from aixposed.plugins import load_providers, resolve_providers, resolve_sources
 from aixposed.plugins.base import Candidate, DiscoverContext
 
-console = Console()
+# legacy_windows=False avoids cp1252 crashes on spinner glyphs
+console = Console(legacy_windows=False)
 
 
 @dataclass
@@ -113,6 +115,7 @@ async def _collect_candidates(cfg: DiscoverConfig, evasion: HostEvasion) -> list
                         "source": cand.source,
                         "title": cand.title or "",
                         "created_at": "",
+                        "archive_ts": getattr(cand, "archive_ts", "") or "",
                     }
                 )
                 n = len(rows)
@@ -134,44 +137,37 @@ async def _collect_candidates(cfg: DiscoverConfig, evasion: HostEvasion) -> list
     return interleave_by_key(rows, key_fn=lambda r: r.get("provider", ""))
 
 
-async def _verify_rows(
+async def _enrich_rows(
     rows: list[dict[str, str]],
     cfg: DiscoverConfig,
     evasion: HostEvasion,
 ) -> list[dict[str, str]]:
+    """Always fetch titles from live pages; optionally keep dead rows / filter by query."""
     providers = {p.key: p for p in resolve_providers(cfg.providers)}
     filtering = bool(cfg.query or cfg.after or cfg.before)
 
-    to_verify = [r for r in rows if r.get("source") not in cfg.skip_verify_sources]
+    # Brute already probed and usually has titles.
     already_ok = [
-        r for r in rows if r.get("source") in cfg.skip_verify_sources and r.get("title")
+        r
+        for r in rows
+        if r.get("source") in cfg.skip_verify_sources and not is_weak_title(r.get("title"))
     ]
     for r in already_ok:
         r.setdefault("status", "live")
-        r.setdefault("title", r.get("title") or "(untitled)")
         r.setdefault("created_at", "")
 
-    if not cfg.verify:
-        if filtering:
-            console.print(
-                "[yellow]Note:[/yellow] --query/--after/--before need live checks; "
-                "ignoring --no-verify for filter pass."
-            )
-        else:
-            for r in rows:
-                if not r.get("title"):
-                    r["title"] = "(unverified)"
-                r["status"] = r.get("status") or "unverified"
-                r.setdefault("created_at", "")
-            return rows
-
-    to_verify = interleave_by_key(to_verify, key_fn=lambda r: host_of(r.get("link", "")))
+    already_ids = {id(r) for r in already_ok}
+    pending = [r for r in rows if id(r) not in already_ids]
+    pending = interleave_by_key(pending, key_fn=lambda r: host_of(r.get("link", "")))
 
     sem = asyncio.Semaphore(cfg.concurrency)
-    verified: list[dict[str, str]] = list(already_ok)
+    out_rows: list[dict[str, str]] = list(already_ok)
     live_n = len(already_ok)
     dead_n = 0
     miss_n = 0
+
+    if not pending:
+        return out_rows
 
     async with make_client() as client:
 
@@ -180,44 +176,79 @@ async def _verify_rows(
             provider = providers.get(row["provider"]) or load_providers().get(row["provider"])
             if not provider:
                 return None
+            out = dict(row)
+
             async with sem:
+                # ALWAYS hit the share page for title — even with --no-verify.
                 result = await probe_share(
                     client,
                     provider,
                     row["link"],
                     evasion=evasion,
-                    query=cfg.query,
-                    after=cfg.after,
-                    before=cfg.before,
+                    query=cfg.query if cfg.verify or filtering else None,
+                    after=cfg.after if cfg.verify or filtering else None,
+                    before=cfg.before if cfg.verify or filtering else None,
                 )
-            out = dict(row)
-            if result.created_at:
-                out["created_at"] = result.created_at
-            if not result.alive:
-                dead_n += 1
-                out["status"] = "dead"
-                out["title"] = out.get("title") or "(dead/revoked)"
-                console.print(f"  [red]dead[/red]  {out['link']}")
-                # Query mode: don't keep dead noise
-                if filtering or cfg.live_only:
+
+                if result.created_at:
+                    out["created_at"] = result.created_at
+
+                if result.alive:
+                    if result.matched_query is False:
+                        miss_n += 1
+                        console.print(
+                            f"  [dim]miss[/dim]  {result.title or '(untitled)'}  {out['link']}"
+                        )
+                        return None
+                    live_n += 1
+                    out["status"] = "live"
+                    if not is_weak_title(result.title):
+                        out["title"] = result.title  # type: ignore[assignment]
+                    console.print(
+                        f"  [green]live[/green]  [cyan]{out['provider']:<8}[/cyan] "
+                        f"[white]{out.get('title') or result.title or '(…)'}[/white]  "
+                        f"[dim]{out['link']}[/dim]"
+                    )
+                else:
+                    dead_n += 1
+                    out["status"] = "dead"
+                    if cfg.live_only or filtering:
+                        console.print(f"  [red]dead[/red]  {out['link']}")
+                        return None
+                    console.print(f"  [red]dead[/red]  {out['link']}")
+
+                # Archive fallback only when we have a CDX timestamp hint (fast path).
+                if is_weak_title(out.get("title")) and out.get("archive_ts"):
+                    title, created = await title_from_wayback(
+                        client,
+                        out["link"],
+                        evasion=evasion,
+                        hint_ts=out.get("archive_ts"),
+                    )
+                    if title and not is_weak_title(title):
+                        out["title"] = title
+                        console.print(
+                            f"  [magenta]arch[/magenta] [white]{title}[/white]  "
+                            f"[dim]{out['link']}[/dim]"
+                        )
+                    if created and not out.get("created_at"):
+                        out["created_at"] = created
+
+                if is_weak_title(out.get("title")):
+                    # Last resort: use whatever probe returned
+                    if result.title and not is_weak_title(result.title):
+                        out["title"] = result.title
+                    else:
+                        out["title"] = (
+                            "(dead/revoked)"
+                            if out.get("status") == "dead"
+                            else "(untitled)"
+                        )
+
+                if filtering and cfg.query and not matches_query(out.get("title"), "", cfg.query):
+                    miss_n += 1
                     return None
                 return out
-            if result.matched_query is False:
-                miss_n += 1
-                console.print(
-                    f"  [dim]miss[/dim]  {result.title or '(untitled)'}  {out['link']}"
-                )
-                # Search mode feeds ONLY matches
-                return None
-            live_n += 1
-            out["status"] = "live"
-            out["title"] = result.title or "(untitled)"
-            date_bit = f"  [dim]{out['created_at']}[/dim]" if out.get("created_at") else ""
-            console.print(
-                f"  [green]live[/green]  [cyan]{out['provider']:<8}[/cyan] "
-                f"[white]{out['title']}[/white]{date_bit}  [dim]{out['link']}[/dim]"
-            )
-            return out
 
         with Progress(
             SpinnerColumn(),
@@ -227,31 +258,29 @@ async def _verify_rows(
             TimeElapsedColumn(),
             console=console,
         ) as progress:
-            label = "Filtering title/body/date..." if filtering else "Verifying..."
-            task = progress.add_task(label, total=len(to_verify))
+            task = progress.add_task("Fetching titles...", total=len(pending))
             window = max(cfg.concurrency * 3, 12)
-            for i in range(0, len(to_verify), window):
-                chunk = to_verify[i : i + window]
+            for i in range(0, len(pending), window):
+                chunk = pending[i : i + window]
                 futs = [asyncio.create_task(one(r)) for r in chunk]
                 for fut in asyncio.as_completed(futs):
                     item = await fut
                     if item:
-                        verified.append(item)
+                        out_rows.append(item)
                     progress.advance(task)
 
     console.print(
-        f"[dim]verify summary:[/dim] [green]{live_n} live[/green] / "
+        f"[dim]enrich summary:[/dim] [green]{live_n} live[/green] / "
         f"[red]{dead_n} dead[/red] / [dim]{miss_n} miss[/dim] / "
-        f"kept [cyan]{len(verified)}[/cyan]"
+        f"kept [cyan]{len(out_rows)}[/cyan]"
     )
-    return verified
+    return out_rows
 
 
 async def run_discover(cfg: DiscoverConfig) -> str:
     if cfg.show_banner:
         print_banner(console)
 
-    # Filters require probing page content.
     if (cfg.query or cfg.after or cfg.before) and not cfg.verify:
         cfg.verify = True
 
@@ -280,11 +309,16 @@ async def run_discover(cfg: DiscoverConfig) -> str:
 
     candidates = await _collect_candidates(cfg, evasion)
     console.print(f"Unique candidates: [cyan]{len(candidates)}[/cyan]")
-    final_rows = await _verify_rows(candidates, cfg, evasion)
+    final_rows = await _enrich_rows(candidates, cfg, evasion)
+
+    for r in final_rows:
+        r.pop("archive_ts", None)
 
     path = write_csv(cfg.out, final_rows)
+    titled = sum(1 for r in final_rows if not is_weak_title(r.get("title")))
     console.print(
-        f"[green]CSV ready:[/green] {path}  ([cyan]{len(final_rows)}[/cyan] row(s)"
+        f"[green]CSV ready:[/green] {path}  "
+        f"([cyan]{len(final_rows)}[/cyan] row(s), [cyan]{titled}[/cyan] with titles)"
     )
     return str(path)
 

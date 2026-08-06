@@ -26,10 +26,11 @@ It's a public URL.
 
 We:
 
-1. dig the open web + archives for `/share/` crumbs
-2. bounce between domains so rate limits don't catch the L
-3. poke UUID-shaped holes when the mood is spicy
-4. dump `title,link` into a CSV like it's 2009 and XMLRPC still mattered
+1. dig the open web + archives for `/share/` crumbs  
+2. bounce between domains so rate limits don't catch the L  
+3. poke UUID-shaped holes when the mood is spicy  
+4. **always fetch the real conversation title** from the live page (Grok `og:title`, ChatGPT `pageTitle` / react-router stream)  
+5. dump `title,link,status,…` into a CSV like it's 2009 and XMLRPC still mattered
 
 ```
       /\_/\
@@ -53,8 +54,11 @@ pip install -r requirements.txt
 ## run it (zero brain cells required)
 
 ```powershell
-# yeet everything. all providers. interleaved. go. (no banner, we have taste)
+# yeet everything. all providers. interleaved. titles fetched. go.
 python -m aixposed
+
+# small batch with real titles in the CSV
+python -m aixposed --sources cdx --providers chatgpt --limit 10 --out test.csv
 
 # TOPIC SEARCH — dorks + title/body filter. only matching shares hit the CSV
 python -m aixposed search -q "stanford HCAI" --out hits.csv
@@ -66,7 +70,7 @@ python -m aixposed --providers claude --sources search,cdx,brute --brute-attempt
 # neighbor-probe around known IDs (not just whatever Google indexed)
 python -m aixposed --sources brute --seed-file ids.txt --brute-attempts 1000 --providers chatgpt,claude
 
-# raw archive dump, skip live checks
+# still fetches titles, but KEEPS dead/revoked rows in the CSV
 python -m aixposed --sources cdx --no-verify --limit 60 --out raw.csv
 
 python -m aixposed plugins
@@ -74,7 +78,6 @@ python -m aixposed --banner
 ```
 
 ### knobs for the terminally online
-
 
 | Flag | Default | Vibes |
 |------|---------|-------|
@@ -85,16 +88,17 @@ python -m aixposed --banner
 | `--after` / `--before` | off | date filter `YYYY-MM-DD` (from share metadata when present) |
 | `--brute-attempts` | `500` | how hard we yeet UUIDs into the void |
 | `--seed-file` | off | known IDs/URLs + nearby UUID neighbors |
-| `--no-verify` | off | skip live checks |
+| `--no-verify` | off | **still fetches titles**; keeps dead rows instead of filtering hard |
 | `--live-only` | off | drop dead/revoked |
 | `--banner` | off | N3 Sec ASCII, opt-in |
 
-> **Claude scarce?** Indexes nuked a lot of `/share` pages. Use `search -q "..."` + `--sources search,cdx,brute` and crank `--brute-attempts`. Brute is the "not indexed" path.
+> **Titles in the CSV:** every run hits the share page for `pageTitle` / `og:title`.  
+> `--no-verify` does **not** mean "skip titles" — it means "don't throw away dead links."  
+> If you see `(unverified)` / empty titles, you're on an old build — pull latest.
 >
-> **Titles:** Grok `og:title`, ChatGPT `pageTitle` / react-router stream, cleaned of `ChatGPT -` / `| Shared Grok Conversation` junk.
+> **Claude scarce?** Indexes nuked a lot of `/share` pages. Use `search -q "..."` + `--sources search,cdx,brute` and crank `--brute-attempts`.
 >
 > CSV columns: `title,link,provider,source,share_id,status,created_at`
-
 
 ---
 
@@ -147,7 +151,8 @@ If you still get banned: skill issue. touch the `--delay`.
 ## CSV go brrr
 
 ```
-title,link,provider,source,share_id
+title,link,provider,source,share_id,status,created_at
+HCAI Stanford Program,https://chatgpt.com/share/…,chatgpt,cdx,…,live,2023-08-11
 ```
 
 That's it. No dashboard. No SaaS. No "insights."  
@@ -161,6 +166,8 @@ Open it in Excel like a goblin.
 aixposed/
   banner.py       # N3 Sec drip
   evasion.py      # don't get clapped by rate limits
+  archive.py      # Wayback title fallback (when we have a timestamp)
+  extractors.py   # og:title / pageTitle / react-router soup
   engine.py       # the blender
   cli.py          # buttons
   plugins/
@@ -184,4 +191,3 @@ We're just the cat watching from the windowsill.
      ___|___
     /       \   AIxposed — because "anyone with the link" means anyone.
 ```
-
